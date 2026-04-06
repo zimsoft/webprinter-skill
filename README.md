@@ -1,6 +1,6 @@
 ---
 name: 智睦云打印
-description: 调用官方 WebPrinter 云打印服务（webprinter.cn），支持查询打印机、上传本地文件、创建漫游打印任务、直接打印到指定设备，以及分别更新单双面、颜色和份数等打印参数。
+description: 调用官方 WebPrinter 云打印服务（webprinter.cn），支持查询打印机、上传本地文件、创建漫游打印任务、直接打印到指定设备，以及分别更新单双面、颜色、份数和纸张等打印参数。
 env_vars:
   - WEBPRINTER_ACCESS_TOKEN
 ---
@@ -17,6 +17,7 @@ env_vars:
 - 更新已有打印任务的单双面设置
 - 更新已有打印任务的颜色设置
 - 更新已有打印任务的份数设置
+- 更新已有打印任务的纸张设置
 
 ## 使用前检查
 1. 运行环境需要 `Python 3.10+`
@@ -154,13 +155,43 @@ python scripts/mcp_client.py update-printer-copies --task-id "TASK_20240324_001"
 
 - `1-99`
 
+修改纸张时，例如：
+
+- “改成 A4”
+- “纸张设成 A3”
+- “设置纸张宽 210 高 297”
+
+执行命令：
+```bash
+python scripts/mcp_client.py update-printer-paper --task-id "TASK_20240324_001" --paper-size A4
+```
+
+或：
+```bash
+python scripts/mcp_client.py update-printer-paper --task-id "TASK_20240324_001" --width 210 --height 297
+```
+
+内置纸型转换规则（单位：毫米）：
+
+- `A3` -> `297 x 420`
+- `A4` -> `210 x 297`
+- `A5` -> `148 x 210`
+- `B4` -> `250 x 353`
+- `B5` -> `176 x 250`
+- `LETTER` -> `215.9 x 279.4`
+- `LEGAL` -> `215.9 x 355.6`
+- `TABLOID` -> `279.4 x 431.8`
+
+如果用户说的是纸型名称，优先自动转换成 `paper.width` 和 `paper.height` 后再调用接口。
+
 ## 核心规则
 1. 用户未明确说“直接打印到指定设备”时，默认创建漫游打印任务
 2. 只要是用户明确提供的可访问 HTTPS 文档链接，就直接使用原始链接，不主动下载或中转
 3. 只有本地文件才需要先上传；远程链接不需要先下载再上传
-4. `query-printer-detail`、`update-printer-side`、`update-printer-color`、`update-printer-copies` 仅在用户明确要求时调用
+4. `query-printer-detail`、`update-printer-side`、`update-printer-color`、`update-printer-copies`、`update-printer-paper` 仅在用户明确要求时调用
 5. `update-printer-side` 只负责单双面；颜色和份数必须分别使用独立动作更新
-6. 在 WebPrinter 体系里，打印设备的唯一定位信息应以“打印机名称 + 服务端标识”为准；服务端标识可能表现为 `sn`、`shareSn` 或 `controlSn`，应结合接口返回字段使用
+6. 用户说 `A3`、`A4` 等纸型时，不要把纸型名称原样传给后端；先转换成毫米单位的 `paper.width` 和 `paper.height`
+7. 在 WebPrinter 体系里，打印设备的唯一定位信息应以“打印机名称 + 服务端标识”为准；服务端标识可能表现为 `sn`、`shareSn` 或 `controlSn`，应结合接口返回字段使用
 
 ## 动作映射
 | 用户表达 | 输入类型 | 调用动作 | 说明 |
@@ -173,6 +204,7 @@ python scripts/mcp_client.py update-printer-copies --task-id "TASK_20240324_001"
 | “设置双面打印” | - | `update-printer-side` | 只更新单双面 |
 | “改成彩色打印” | - | `update-printer-color` | 只更新颜色 |
 | “打印 3 份” | - | `update-printer-copies` | 只更新份数 |
+| “改成 A4” | - | `update-printer-paper` | 纸型先转宽高再更新 |
 
 ## 接口与命令
 服务信息：
@@ -245,7 +277,19 @@ python scripts/mcp_client.py update-printer-color --task-id "TASK_20240324_001" 
 python scripts/mcp_client.py update-printer-copies --task-id "TASK_20240324_001" --copies 2
 ```
 
-### 9. 直接打印到指定设备
+### 9. 更新纸张
+- 路径：`POST /openapi/task/config/updatePrinterPaperMCP`
+- 命令：
+```bash
+python scripts/mcp_client.py update-printer-paper --task-id "TASK_20240324_001" --paper-size A4
+```
+
+或：
+```bash
+python scripts/mcp_client.py update-printer-paper --task-id "TASK_20240324_001" --width 210 --height 297
+```
+
+### 10. 直接打印到指定设备
 - 路径：`POST /openapi/task/directPrintDocumentMCP`
 - 命令：
 ```bash

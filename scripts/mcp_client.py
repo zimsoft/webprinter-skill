@@ -17,7 +17,7 @@ import requests
 
 TOKEN_ENV_VAR = "WEBPRINTER_ACCESS_TOKEN"
 BASE_URL = "https://any.webprinter.cn"
-SKILL_VERSION = "1.0.9"
+SKILL_VERSION = "1.0.10"
 DEFAULT_TIMEOUT = 30
 SUPPORTED_MEDIA_FORMATS = [
     "HTML",
@@ -42,6 +42,37 @@ SUPPORTED_MEDIA_FORMATS = [
 SUPPORTED_COLOR_MODES = ["COLOR", "MONOCHROME"]
 MIN_COPIES = 1
 MAX_COPIES = 99
+PAPER_SIZE_DIMENSIONS = {
+    "A0": {"width": 841.0, "height": 1189.0},
+    "A1": {"width": 594.0, "height": 841.0},
+    "A2": {"width": 420.0, "height": 594.0},
+    "A3": {"width": 297.0, "height": 420.0},
+    "A4": {"width": 210.0, "height": 297.0},
+    "A5": {"width": 148.0, "height": 210.0},
+    "A6": {"width": 105.0, "height": 148.0},
+    "B4": {"width": 250.0, "height": 353.0},
+    "B5": {"width": 176.0, "height": 250.0},
+    "LETTER": {"width": 215.9, "height": 279.4},
+    "LEGAL": {"width": 215.9, "height": 355.6},
+    "TABLOID": {"width": 279.4, "height": 431.8},
+}
+PAPER_SIZE_ALIASES = {
+    "a0": "A0",
+    "a1": "A1",
+    "a2": "A2",
+    "a3": "A3",
+    "a4": "A4",
+    "a5": "A5",
+    "a6": "A6",
+    "b4": "B4",
+    "b5": "B5",
+    "letter": "LETTER",
+    "usletter": "LETTER",
+    "legal": "LEGAL",
+    "uslegal": "LEGAL",
+    "tabloid": "TABLOID",
+    "ledger": "TABLOID",
+}
 IPAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
 
 
@@ -106,6 +137,31 @@ def validate_https_url(url: str) -> Optional[str]:
         return "Private or local network URLs are not allowed."
 
     return None
+
+
+def normalize_paper_size(paper_size: str) -> Optional[str]:
+    normalized = "".join(ch for ch in paper_size.strip().lower() if ch.isalnum())
+    return PAPER_SIZE_ALIASES.get(normalized)
+
+
+def build_paper_config(
+    paper_size: Optional[str] = None,
+    width: Optional[float] = None,
+    height: Optional[float] = None,
+) -> Dict[str, float]:
+    if paper_size:
+        canonical_size = normalize_paper_size(paper_size)
+        if not canonical_size:
+            supported = ", ".join(PAPER_SIZE_DIMENSIONS.keys())
+            raise ValueError(f"Unsupported paper size '{paper_size}'. Supported values: {supported}.")
+        return dict(PAPER_SIZE_DIMENSIONS[canonical_size])
+
+    if width is None or height is None:
+        raise ValueError("Paper config requires either --paper-size or both --width and --height.")
+    if width <= 0 or height <= 0:
+        raise ValueError("Paper width and height must be positive numbers.")
+
+    return {"width": float(width), "height": float(height)}
 
 
 class CloudPrintClient:
@@ -239,6 +295,10 @@ class CloudPrintClient:
         data: Dict[str, Any] = {"taskId": task_id, "copies": copies}
         return self._send_request("POST", "/openapi/task/config/updatePrinterCopiesMCP", data)
 
+    def update_printer_paper(self, task_id: str, paper: Dict[str, float]) -> Dict[str, Any]:
+        data: Dict[str, Any] = {"taskId": task_id, "paper": paper}
+        return self._send_request("POST", "/openapi/task/config/updatePrinterPaperMCP", data)
+
     def direct_print_document(
         self,
         file_name: str,
@@ -280,6 +340,8 @@ Examples:
   python scripts/mcp_client.py update-printer-side --task-id "TASK_20240324_001" --side DUPLEX
   python scripts/mcp_client.py update-printer-color --task-id "TASK_20240324_001" --color COLOR
   python scripts/mcp_client.py update-printer-copies --task-id "TASK_20240324_001" --copies 2
+  python scripts/mcp_client.py update-printer-paper --task-id "TASK_20240324_001" --paper-size A4
+  python scripts/mcp_client.py update-printer-paper --task-id "TASK_20240324_001" --width 210 --height 297
   python scripts/mcp_client.py print-document --file-name "report.pdf" --url "https://example.com/report.pdf" --media-format PDF --device-name "HP LaserJet Pro" --control-sn "SERVER123456"
 
 Token env var:
@@ -322,6 +384,16 @@ Token env var:
         metavar=f"[{MIN_COPIES}-{MAX_COPIES}]",
         help="Number of copies",
     )
+
+    paper_parser = subparsers.add_parser("update-printer-paper", help="Update paper size for an existing task")
+    paper_parser.add_argument("--task-id", required=True, help="Task ID")
+    paper_group = paper_parser.add_mutually_exclusive_group(required=True)
+    paper_group.add_argument(
+        "--paper-size",
+        help="Named paper size, such as A3, A4, A5, B4, B5, LETTER, LEGAL, or TABLOID",
+    )
+    paper_group.add_argument("--width", type=float, help="Paper width in millimeters")
+    paper_parser.add_argument("--height", type=float, help="Paper height in millimeters")
 
     print_parser = subparsers.add_parser("print-document", help="Print directly to a specific printer")
     print_parser.add_argument("--file-name", required=True, help="Document file name")
@@ -369,6 +441,17 @@ def main() -> None:
         result = client.update_printer_color(task_id=args.task_id, color=args.color)
     elif args.command == "update-printer-copies":
         result = client.update_printer_copies(task_id=args.task_id, copies=args.copies)
+    elif args.command == "update-printer-paper":
+        try:
+            paper = build_paper_config(
+                paper_size=args.paper_size,
+                width=args.width,
+                height=args.height,
+            )
+        except ValueError as exc:
+            print_result({"error": str(exc)})
+            sys.exit(1)
+        result = client.update_printer_paper(task_id=args.task_id, paper=paper)
     else:
         result = client.direct_print_document(
             file_name=args.file_name,
