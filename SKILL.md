@@ -1,5 +1,5 @@
 ---
-name: 智睦云打印
+name: webprinter-skill
 description: 调用官方 WebPrinter 云打印服务（webprinter.cn），支持查询打印机、上传本地文件、创建漫游打印任务、直接打印到指定设备，以及分别更新单双面、颜色、份数和纸张等打印参数。
 env_vars:
   - WEBPRINTER_ACCESS_TOKEN
